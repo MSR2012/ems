@@ -1,0 +1,159 @@
+# AI Email Management Platform — local/demo stack.
+# `make up` (= docker compose up -d --build) starts everything.
+# Demo defaults are inline so no .env file is required; override via shell env or a .env file
+# (see .env.example for the full list).
+
+x-backend-env: &backend-env
+  DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.dev}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-bDkIuLljhzCtPHKiRscEzCM47uFFp1_devkrqkB5jyZ6HTkmf885hA}
+  DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0,api}
+  APP_URL: ${APP_URL:-http://localhost:5173}
+  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:5173,http://localhost:8000}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+  CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-0}
+  SESSION_COOKIE_SAMESITE: ${SESSION_COOKIE_SAMESITE:-Lax}
+  DATABASE_URL: ${DATABASE_URL:-postgres://emp:emp@db:5432/emp}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+  GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:5173/api/v1/integrations/gmail/callback}
+  GMAIL_SCOPES: ${GMAIL_SCOPES:-openid email https://www.googleapis.com/auth/gmail.readonly}
+  GMAIL_INITIAL_SYNC_DAYS: ${GMAIL_INITIAL_SYNC_DAYS:-30}
+  GMAIL_SYNC_INTERVAL_SECONDS: ${GMAIL_SYNC_INTERVAL_SECONDS:-300}
+  SYNC_DISPATCH_INTERVAL: ${SYNC_DISPATCH_INTERVAL:-60}
+  GMAIL_GATEWAY: ${GMAIL_GATEWAY:-fake}
+  AI_PROVIDER: ${AI_PROVIDER:-fake}
+  JEV_AI_API_KEY: ${JEV_AI_API_KEY:-${JEV_API_KEY:-}}
+  JEV_AI_BASE_URL: ${JEV_AI_BASE_URL:-https://thejevai.com/v1/systemone}
+  JEV_AI_MODEL: ${JEV_AI_MODEL:-jev-latest}
+  AI_PROMPT_VERSION: ${AI_PROMPT_VERSION:-v1}
+  AI_MAX_INPUT_CHARS: ${AI_MAX_INPUT_CHARS:-12000}
+  AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-300}
+  AI_REQUEST_TIMEOUT_SECONDS: ${AI_REQUEST_TIMEOUT_SECONDS:-30}
+  SPAM_THRESHOLD_PERCENT: ${SPAM_THRESHOLD_PERCENT:-70}
+  URGENCY_THRESHOLD_PERCENT: ${URGENCY_THRESHOLD_PERCENT:-70}
+  # Dev-only Fernet key (comma-separate several keys for rotation; first one encrypts).
+  TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-QOfTpU-17kxX7Ns7sn1GbPVJSFYxem8YpiOQrovffsA=}
+  EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+  EMAIL_HOST: ${EMAIL_HOST:-localhost}
+  EMAIL_PORT: ${EMAIL_PORT:-25}
+  EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+  EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+  EMAIL_USE_TLS: ${EMAIL_USE_TLS:-0}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-no-reply@example.com}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON: ${LOG_JSON:-1}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
+x-backend: &backend
+  build:
+    context: ./backend
+  image: emp-backend:dev
+  environment: *backend-env
+  volumes:
+    - ./backend:/app
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: emp
+      POSTGRES_USER: emp
+      POSTGRES_PASSWORD: emp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emp -d emp"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    <<: *backend
+    command: ["/app/entrypoint.sh"]
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/v1/auth/csrf', timeout=5)"]
+      interval: 5s
+      timeout: 6s
+      retries: 60
+      start_period: 20s
+
+  worker:
+    <<: *backend
+    # watchfiles restarts the worker when backend code changes (dev convenience)
+    command: ["watchfiles", "--filter", "python", "celery -A config worker -Q sync,analysis,default -l info --concurrency 4 -n worker@%h", "/app/src", "/app/config"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d worker@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 15s
+      timeout: 15s
+      retries: 10
+      start_period: 20s
+
+  beat:
+    <<: *backend
+    command: ["watchfiles", "--filter", "python", "celery -A config beat -l info -s /tmp/celerybeat-schedule --pidfile=", "/app/src", "/app/config"]
+
+  frontend:
+    image: node:22
+    working_dir: /app
+    command: ["sh", "-c", "npm install --no-audit --no-fund && npm run dev"]
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://api:8000}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+  # `make e2e` — Playwright against the running stack. Shares the frontend container's network
+  # namespace so http://localhost:5173 (and backend redirects to it) resolve to the real app.
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.63.0-noble
+    profiles: ["e2e"]
+    network_mode: "service:frontend"
+    working_dir: /app
+    environment:
+      CI: "1"
+    command: ["npx", "playwright", "test"]
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - frontend
+
+volumes:
+  pgdata:
+  frontend_node_modules:

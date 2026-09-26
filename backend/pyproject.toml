@@ -1,0 +1,27 @@
+[project]
+name = "emp-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "."]
+extend-exclude = ["**/migrations/**"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["config", "shared_kernel", "identity", "gmail_integration", "mailbox_context", "email_intelligence"]
+
+[tool.pytest.ini_options]
+# --ds on the command line beats the DJANGO_SETTINGS_MODULE env var set by compose.
+addopts = "--ds=config.settings.test -ra"
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+markers = [
+    "unit: pure domain/application tests (no database)",
+]

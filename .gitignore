@@ -1,0 +1,39 @@
+# --- Claude / AI agent files ---
+.claude/
+CLAUDE.md
+AGENTS.md
+PROCESS.md
+SELF_IMPROVE.md
+docs/TASKS.md
+
+# --- IDE / editor ---
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+.DS_Store
+
+# --- Requirements ---
+REQUIREMENTS.md
+
+# --- Local environment (env.example stays tracked) ---
+.env
+.env.*
+!env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+.mypy_cache/
+backend/staticfiles/
+celerybeat-schedule*
+
+# --- Frontend ---
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/

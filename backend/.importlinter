@@ -1,0 +1,133 @@
+[importlinter]
+root_packages =
+    shared_kernel
+    identity
+    gmail_integration
+    mailbox_context
+    email_intelligence
+include_external_packages = True
+
+[importlinter:contract:domain-purity]
+name = Domain layers are pure Python (no frameworks, no outer layers)
+type = forbidden
+source_modules =
+    shared_kernel.domain
+    identity.domain
+    gmail_integration.domain
+    mailbox_context.domain
+    email_intelligence.domain
+forbidden_modules =
+    django
+    rest_framework
+    celery
+    drf_spectacular
+    httpx
+    pydantic
+    redis
+    shared_kernel.application
+    shared_kernel.infrastructure
+    shared_kernel.interfaces
+    identity.application
+    identity.infrastructure
+    identity.interfaces
+    gmail_integration.application
+    gmail_integration.infrastructure
+    gmail_integration.interfaces
+    mailbox_context.application
+    mailbox_context.infrastructure
+    mailbox_context.interfaces
+    email_intelligence.application
+    email_intelligence.infrastructure
+    email_intelligence.interfaces
+
+[importlinter:contract:application-purity]
+name = Application layers depend only on domain (no frameworks, no infrastructure/interfaces)
+type = forbidden
+source_modules =
+    shared_kernel.application
+    identity.application
+    gmail_integration.application
+    mailbox_context.application
+    email_intelligence.application
+forbidden_modules =
+    django
+    rest_framework
+    celery
+    httpx
+    redis
+    shared_kernel.infrastructure
+    shared_kernel.interfaces
+    identity.infrastructure
+    identity.interfaces
+    gmail_integration.infrastructure
+    gmail_integration.interfaces
+    mailbox_context.infrastructure
+    mailbox_context.interfaces
+    email_intelligence.infrastructure
+    email_intelligence.interfaces
+
+[importlinter:contract:layers]
+name = Layered architecture inside each bounded context
+type = layers
+layers =
+    interfaces
+    infrastructure
+    application
+    domain
+containers =
+    shared_kernel
+    identity
+    gmail_integration
+    mailbox_context
+    email_intelligence
+
+[importlinter:contract:mailbox-provider-neutral]
+name = Mailbox is provider-neutral and independent of other contexts
+type = forbidden
+source_modules =
+    mailbox_context
+forbidden_modules =
+    gmail_integration
+    email_intelligence
+    identity
+
+[importlinter:contract:intelligence-isolation]
+name = Email Intelligence never touches Gmail and only uses Mailbox's application layer
+type = forbidden
+# Going through the other context's application layer is allowed even though that layer
+# itself uses its own domain; only *direct* imports of domain/infrastructure are forbidden.
+allow_indirect_imports = True
+source_modules =
+    email_intelligence
+forbidden_modules =
+    gmail_integration
+    identity
+    mailbox_context.domain
+    mailbox_context.infrastructure
+    mailbox_context.interfaces
+
+[importlinter:contract:gmail-acl]
+name = Gmail Integration reaches Mailbox only through its application layer
+type = forbidden
+# Going through the other context's application layer is allowed even though that layer
+# itself uses its own domain; only *direct* imports of domain/infrastructure are forbidden.
+allow_indirect_imports = True
+source_modules =
+    gmail_integration
+forbidden_modules =
+    email_intelligence
+    identity
+    mailbox_context.domain
+    mailbox_context.infrastructure
+    mailbox_context.interfaces
+
+[importlinter:contract:inner-layers-no-cross-context]
+name = Domain/application layers never import other bounded contexts
+type = forbidden
+source_modules =
+    gmail_integration.domain
+    gmail_integration.application
+    email_intelligence.domain
+    email_intelligence.application
+forbidden_modules =
+    mailbox_context
