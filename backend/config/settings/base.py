@@ -206,12 +206,20 @@ FAKE_GMAIL_LATENCY_MS = env_int("FAKE_GMAIL_LATENCY_MS", 120)
 INITIAL_SYNC_START_DELAY_SECONDS = env_int("INITIAL_SYNC_START_DELAY_SECONDS", 2)
 
 # --- AI ---
-AI_PROVIDER = env("AI_PROVIDER", "fake")  # jev_ai | fake
+AI_PROVIDER = env("AI_PROVIDER", "fake")  # jev_ai | openrouter | fake
+# Queue analysis automatically when sync imports an email. Off for now: analysis only runs
+# from the "Analyze with …" button / reanalyze_emails command.
+AUTO_ANALYZE_ON_IMPORT = env_bool("AUTO_ANALYZE_ON_IMPORT", False)
 # JEV_API_KEY is the name used in the Jev AI docs; JEV_AI_API_KEY (PRD §34) takes precedence.
 JEV_AI_API_KEY = env("JEV_AI_API_KEY", env("JEV_API_KEY", ""))
 # Full System One endpoint (https://thejevai.com/docs#quickstart)
 JEV_AI_BASE_URL = env("JEV_AI_BASE_URL", "https://thejevai.com/v1/systemone")
 JEV_AI_MODEL = env("JEV_AI_MODEL", "jev-latest")
+# Jev through OpenRouter (AI_PROVIDER=openrouter): same System One contract, OpenRouter key/billing.
+# https://openrouter.ai/docs/guides/community/jev
+OPENROUTER_API_KEY = env("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1/systemone")
+OPENROUTER_MODEL = env("OPENROUTER_MODEL", "~typesafe/jev-latest")
 AI_PROMPT_VERSION = env("AI_PROMPT_VERSION", "v1")
 AI_MAX_INPUT_CHARS = env_int("AI_MAX_INPUT_CHARS", 12000)
 AI_MAX_OUTPUT_TOKENS = env_int("AI_MAX_OUTPUT_TOKENS", 300)

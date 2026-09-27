@@ -21,6 +21,10 @@ def classifier():
         from .ai.jev_ai import JevAIClassifier
 
         return JevAIClassifier()
+    if settings.AI_PROVIDER == "openrouter":
+        from .ai.jev_ai import OpenRouterJevClassifier
+
+        return OpenRouterJevClassifier()
     from .ai.fake import FakeClassifier
 
     return FakeClassifier()

@@ -43,6 +43,14 @@ def test_imported_emails_are_analyzed_with_versions(user):
         assert a.model == "fake-classifier-1" and a.prompt_version == "v1" and a.analyzed_at
 
 
+def test_sync_does_not_analyze_when_auto_analysis_is_off(user, settings):
+    settings.AUTO_ANALYZE_ON_IMPORT = False
+    account = connect_fake_account(user)
+    sync(account)
+    assert EmailModel.objects.filter(user=user).exists()
+    assert not EmailAnalysisModel.objects.filter(user=user).exists()
+
+
 @pytest.mark.parametrize("mode", ["invalid_json", "bad_enum", "out_of_range", "timeout"])
 def test_failures_are_retried_then_failed_and_nothing_invalid_persisted(user, mode):
     account = connect_fake_account(user)
@@ -199,6 +207,35 @@ def test_full_pipeline_with_jev_ai_provider(user, settings):
     assert route.call_count == completed.count()
     log = AiUsageLogModel.objects.filter(user=user, status="SUCCESS").first()
     assert log.provider == "jev_ai" and log.model == "jev-1.13.0" and log.input_tokens == 300
+
+
+def test_full_pipeline_with_openrouter_provider(user, settings):
+    """AI_PROVIDER=openrouter selects Jev via OpenRouter's System One endpoint; direct Jev is untouched."""
+    import httpx
+    import respx
+
+    settings.AI_PROVIDER = "openrouter"
+    settings.OPENROUTER_API_KEY = "sk-or-test"
+    settings.OPENROUTER_MODEL = "~typesafe/jev-latest"
+    settings.OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/systemone"
+    body = {"id": "gen-1", "model": "typesafe/jev-1.13", "usage": {"input_tokens": 900, "output_tokens": 0,
+                                                                  "cost": 0.0009}, "answers": {
+        "priority": {"type": "choice", "choice": "HIGH", "probabilities": {"HIGH": 0.6}},
+        "category": {"type": "choice", "choice": "CUSTOMER", "probabilities": {"CUSTOMER": 0.8}},
+        "spam": {"type": "noul", "noul": 0.02},
+        "reply_urgency": {"type": "score", "score": 3.0},
+        "sentiment": {"type": "choice", "choice": "NEGATIVE", "probabilities": {"NEGATIVE": 0.7}}}}
+    account = connect_fake_account(user)
+    with respx.mock(assert_all_called=False) as m:
+        m.post("https://openrouter.ai/api/v1/systemone").mock(return_value=httpx.Response(200, json=body))
+        direct = m.post("https://thejevai.com/v1/systemone")
+        sync(account)
+        assert not direct.called
+    a = EmailAnalysisModel.objects.filter(user=user, status="COMPLETED").first()
+    assert (a.model, a.model_version, a.priority, a.reply_urgency) == (
+        "~typesafe/jev-latest", "typesafe/jev-1.13", "HIGH", 75)
+    log = AiUsageLogModel.objects.filter(user=user, status="SUCCESS").first()
+    assert log.provider == "openrouter" and log.input_tokens == 900
 
 
 def test_duplicate_analyze_jobs_are_harmless(user):

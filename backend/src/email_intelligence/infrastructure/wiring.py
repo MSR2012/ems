@@ -8,9 +8,13 @@ logger = logging.getLogger(__name__)
 
 
 def _on_email_imported(event) -> None:
+    from django.conf import settings
+
     from email_intelligence.infrastructure import container
     from shared_kernel.domain import NotFoundError
 
+    if not settings.AUTO_ANALYZE_ON_IMPORT:
+        return
     try:
         container.request_analysis()(email_id=event.email_id)
     except NotFoundError:

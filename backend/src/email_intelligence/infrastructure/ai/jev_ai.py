@@ -6,7 +6,11 @@ Contract (https://thejevai.com/docs#quickstart):
   {"state": <data>, "model": "jev-latest", "questions": {<id>: {type, instructions, criteria}}}
   → {"model": "jev-1.13.0", "answers": {<id>: {type, noul|choice+probabilities|score+legend,
      confidence}}, "usage": {"input_tokens", "output_tokens"}}
-  Errors: 401 invalid key, 422 invalid body, 429 rate limited, 529 overloaded.
+  Errors: 401 invalid key, 402 insufficient credits, 422 invalid body, 429 rate limited, 529 overloaded.
+  The live endpoint wraps that body in {"code", "message", "data": {"result": ...}} (see _unwrap).
+
+OpenRouterJevClassifier sends the same request to OpenRouter's System One endpoint
+(https://openrouter.ai/api/v1/systemone, model `~typesafe/jev-latest`), billed to OpenRouter.
 
 All Jev specifics stay in this module: answers are translated into the application schema and
 then validated by the same strict Pydantic schema as every other provider.
@@ -78,21 +82,37 @@ def translate(answers: dict, question_set: dict) -> dict:
     }
 
 
+def _unwrap(payload: dict) -> dict:
+    """The live API wraps the documented body: {"code": 0, "message": "ok",
+    "data": {"result": {answers, usage, ...}, "creditsUsed": n}}. Accept both shapes."""
+    if "answers" in payload or "data" not in payload:
+        return payload
+    if payload.get("code", 0) != 0:
+        raise AIProviderError(f"Jev AI error (code {payload.get('code')}: {payload.get('message')})")
+    data = payload["data"]
+    return data.get("result", data)
+
+
 class JevAIClassifier:
     provider = "jev_ai"
+    name = "Jev AI"
+    settings_prefix = "JEV_AI"  # reads <prefix>_API_KEY, _BASE_URL, _MODEL
 
     def __init__(self, client: httpx.Client | None = None, *, api_key: str | None = None,
                  url: str | None = None, model: str | None = None,
                  timeout: float | None = None) -> None:
-        self.model = model or settings.JEV_AI_MODEL
-        self._key = api_key if api_key is not None else settings.JEV_AI_API_KEY
-        self._url = url or settings.JEV_AI_BASE_URL
+        self.model = model or self._setting("MODEL")
+        self._key = api_key if api_key is not None else self._setting("API_KEY")
+        self._url = url or self._setting("BASE_URL")
         self._client = client or httpx.Client()
         self._timeout = timeout or settings.AI_REQUEST_TIMEOUT_SECONDS
 
+    def _setting(self, suffix: str) -> str:
+        return getattr(settings, f"{self.settings_prefix}_{suffix}")
+
     def classify(self, request: ClassificationRequest) -> ClassificationOutcome:
         if not self._key:
-            raise AIConfigurationError("JEV_AI_API_KEY is not configured")
+            raise AIConfigurationError(f"{self.settings_prefix}_API_KEY is not configured")
         question_set = prompts.questions(request.prompt_version)
         body = {"state": prompts.state(request), "model": self.model, "questions": question_set}
         try:
@@ -100,21 +120,23 @@ class JevAIClassifier:
                                   headers={"Authorization": f"Bearer {self._key}",
                                            "Content-Type": "application/json"})
         except httpx.TimeoutException as exc:
-            raise AITimeout("Jev AI request timed out") from exc
+            raise AITimeout(f"{self.name} request timed out") from exc
         except httpx.TransportError as exc:
-            raise AIProviderError(f"Jev AI unreachable ({exc.__class__.__name__})") from exc
+            raise AIProviderError(f"{self.name} unreachable ({exc.__class__.__name__})") from exc
 
         if r.status_code == 401:
-            raise AIConfigurationError("Jev AI rejected the API key (401)")
-        if r.status_code == 422:
-            raise AIConfigurationError("Jev AI rejected the request body (422)")
+            raise AIConfigurationError(f"{self.name} rejected the API key (401)")
+        if r.status_code == 402:
+            raise AIConfigurationError(f"{self.name} account has insufficient credits (402)")
+        if r.status_code in (400, 422):
+            raise AIConfigurationError(f"{self.name} rejected the request body ({r.status_code})")
         if r.status_code in (429, 529) or r.status_code >= 500:
-            raise AIProviderError(f"Jev AI busy or unavailable ({r.status_code})")
+            raise AIProviderError(f"{self.name} busy or unavailable ({r.status_code})")
         if r.status_code >= 400:
-            raise AIProviderError(f"Jev AI error ({r.status_code})")
+            raise AIProviderError(f"{self.name} error ({r.status_code})")
 
         try:
-            payload = r.json()
+            payload = _unwrap(r.json())
             usage = payload.get("usage") or {}
             tin, tout = int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
             answers = payload["answers"]
@@ -122,10 +144,19 @@ class JevAIClassifier:
             if not isinstance(answers, dict):
                 raise TypeError("answers must be an object")
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise AIInvalidOutput("unexpected Jev AI response shape") from exc
+            raise AIInvalidOutput(f"unexpected {self.name} response shape") from exc
         try:
             result = parse_output(translate(answers, question_set))
         except OutputValidationError as exc:
             raise AIInvalidOutput(str(exc), input_tokens=tin, output_tokens=tout) from exc
         return ClassificationOutcome(result=result, input_tokens=tin, output_tokens=tout,
                                      model_version=version)
+
+
+class OpenRouterJevClassifier(JevAIClassifier):
+    """Jev through OpenRouter's System One endpoint (https://openrouter.ai/docs/guides/community/jev):
+    same state/questions → answers contract, OpenRouter key and billing, model `~typesafe/jev-latest`."""
+
+    provider = "openrouter"
+    name = "OpenRouter (Jev)"
+    settings_prefix = "OPENROUTER"

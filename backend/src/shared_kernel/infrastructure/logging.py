@@ -8,7 +8,7 @@ import re
 SENSITIVE_KEYS = {
     "body", "body_text", "body_html", "body_html_sanitized", "html", "text", "content", "snippet",
     "access_token", "refresh_token", "token", "id_token", "password", "authorization",
-    "api_key", "jev_ai_api_key", "client_secret", "code", "encrypted_access_token",
+    "api_key", "jev_ai_api_key", "openrouter_api_key", "client_secret", "code", "encrypted_access_token",
     "encrypted_refresh_token", "cookie", "sessionid", "csrftoken",
 }
 _PATTERNS = [

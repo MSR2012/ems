@@ -14,7 +14,7 @@ from email_intelligence.application.ports import (
     ClassificationRequest,
 )
 from email_intelligence.domain.classifications import Category, Priority, Sentiment
-from email_intelligence.infrastructure.ai.jev_ai import JevAIClassifier
+from email_intelligence.infrastructure.ai.jev_ai import JevAIClassifier, OpenRouterJevClassifier
 
 URL = "https://thejevai.com/v1/systemone"
 REQ = ClassificationRequest(sender="priya@acme.com", subject="Production outage",
@@ -169,3 +169,66 @@ def test_non_retryable_errors(clf, code):
 def test_missing_key_is_configuration_error():
     with pytest.raises(AIConfigurationError):
         JevAIClassifier(httpx.Client(), api_key="", url=URL).classify(REQ)
+
+
+@respx.mock
+def test_live_enveloped_response_is_unwrapped(clf):
+    """The live API wraps the documented body in {code, message, data: {result: ...}}."""
+    respx.post(URL).mock(return_value=httpx.Response(200, json={
+        "code": 0, "message": "ok", "creditsUsed": 1,
+        "data": {"result": {"answers": answers(), "usage": {"input_tokens": 1143, "output_tokens": 243},
+                            "elapsedMs": 1982}, "creditsUsed": 1}}))
+    out = clf.classify(REQ)
+    assert out.result.priority == Priority.HIGH and out.result.category == Category.CUSTOMER
+    assert (out.input_tokens, out.output_tokens) == (1143, 243)
+    assert out.model_version is None
+
+
+@respx.mock
+def test_enveloped_error_code_is_a_provider_error(clf):
+    respx.post(URL).mock(return_value=httpx.Response(200, json={"code": 5, "message": "busy", "data": None}))
+    with pytest.raises(AIProviderError):
+        clf.classify(REQ)
+
+
+@respx.mock
+def test_insufficient_credits_is_a_configuration_error(clf):
+    """402 won't fix itself on retry — fail fast with a clear message."""
+    respx.post(URL).mock(return_value=httpx.Response(402, json={"code": -1, "message": "Insufficient credits."}))
+    with pytest.raises(AIConfigurationError, match="insufficient credits"):
+        clf.classify(REQ)
+
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/systemone"
+
+
+@respx.mock
+def test_openrouter_sends_the_same_contract_with_openrouter_key_and_model(settings):
+    settings.OPENROUTER_API_KEY, settings.OPENROUTER_BASE_URL = "sk-or-test", OPENROUTER_URL
+    settings.OPENROUTER_MODEL = "~typesafe/jev-latest"
+    # OpenRouter's documented DecisionsResponse: flat, with usage.cost in USD
+    route = respx.post(OPENROUTER_URL).mock(return_value=httpx.Response(200, json={
+        "id": "gen-1", "model": "typesafe/jev-1.13", "provider": "TypeSafe", "answers": answers(),
+        "usage": {"input_tokens": 1143, "output_tokens": 0, "cost": 0.0011}}))
+    out = OpenRouterJevClassifier(httpx.Client()).classify(REQ)
+    req = route.calls[0].request
+    assert req.headers["Authorization"] == "Bearer sk-or-test"
+    body = json.loads(req.content)
+    assert body["model"] == "~typesafe/jev-latest" and set(body) == {"state", "model", "questions"}
+    assert out.result.priority == Priority.HIGH and out.model_version == "typesafe/jev-1.13"
+    assert (out.input_tokens, out.output_tokens) == (1143, 0)
+
+
+@respx.mock
+def test_openrouter_errors_name_openrouter(settings):
+    settings.OPENROUTER_BASE_URL = OPENROUTER_URL
+    respx.post(OPENROUTER_URL).mock(return_value=httpx.Response(
+        402, json={"error": {"code": 402, "message": "Insufficient credits"}}))
+    with pytest.raises(AIConfigurationError, match="OpenRouter .*insufficient credits"):
+        OpenRouterJevClassifier(httpx.Client(), api_key="sk-or-test").classify(REQ)
+
+
+def test_openrouter_without_key_is_a_configuration_error(settings):
+    settings.OPENROUTER_API_KEY = ""
+    with pytest.raises(AIConfigurationError, match="OPENROUTER_API_KEY"):
+        OpenRouterJevClassifier(httpx.Client()).classify(REQ)

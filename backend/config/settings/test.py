@@ -9,6 +9,7 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 GMAIL_GATEWAY = "fake"
 AI_PROVIDER = "fake"
+AUTO_ANALYZE_ON_IMPORT = True  # pipeline tests exercise sync → EmailImported → analyze
 TOKEN_ENCRYPTION_KEYS = ["QOfTpU-17kxX7Ns7sn1GbPVJSFYxem8YpiOQrovffsA="]
 FAKE_GMAIL_LATENCY_MS = 0
 INITIAL_SYNC_START_DELAY_SECONDS = 0

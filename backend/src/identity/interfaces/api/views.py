@@ -16,13 +16,15 @@ from shared_kernel.interfaces.api.auth import enforce_csrf
 
 from . import serializers as s
 
+PROVIDER_NAMES = {"jev_ai": "Jev AI", "openrouter": "Jev AI (via OpenRouter)"}
+
 
 def _app_settings() -> dict:
     return {
         "spam_threshold_percent": settings.SPAM_THRESHOLD_PERCENT,
         "urgency_threshold_percent": settings.URGENCY_THRESHOLD_PERCENT,
         "ai_provider": settings.AI_PROVIDER,
-        "ai_provider_name": "Jev AI" if settings.AI_PROVIDER == "jev_ai" else "Jev AI (demo simulator)",
+        "ai_provider_name": PROVIDER_NAMES.get(settings.AI_PROVIDER, "Jev AI (demo simulator)"),
         "demo_mode": settings.GMAIL_GATEWAY == "fake" or settings.AI_PROVIDER == "fake",
     }
 

@@ -9,6 +9,8 @@ def active_provider() -> str:
 
 
 def active_model() -> str:
+    if settings.AI_PROVIDER == "openrouter":
+        return settings.OPENROUTER_MODEL
     return FAKE_MODEL if settings.AI_PROVIDER == FAKE_PROVIDER else settings.JEV_AI_MODEL
 
 
