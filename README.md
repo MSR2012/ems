@@ -169,6 +169,23 @@ docker compose exec api python manage.py reanalyze_emails   # analyze existing m
 `JEV_API_KEY` (the name used in the Jev docs) is accepted as an alias. `JEV_AI_BASE_URL` defaults to
 `https://thejevai.com/v1/systemone` and `JEV_AI_MODEL` to `jev-latest`.
 
+### Jev AI through OpenRouter
+
+`AI_PROVIDER=openrouter` sends the same System One request (`state` + typed `questions`) to
+OpenRouter's Jev endpoint instead of thejevai.com, billed to your OpenRouter account
+([guide](https://openrouter.ai/docs/guides/community/jev)). Direct Jev (`AI_PROVIDER=jev_ai`) is
+unchanged; switch between them in `.env` and restart `api` and `worker`.
+
+```bash
+AI_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+# defaults: OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/systemone  OPENROUTER_MODEL=~typesafe/jev-latest
+```
+
+Analyses are versioned by model, so switching providers gives emails a fresh analysis on the next
+**Analyze** click. The model OpenRouter actually ran (e.g. `typesafe/jev-1.13`) is stored as
+`model_version`.
+
 ### Real Gmail
 
 Set `GMAIL_GATEWAY=google`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` and
